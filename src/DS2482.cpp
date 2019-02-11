@@ -22,52 +22,141 @@
 		* Modified search function (thanks Gary Fariss)
 
 */
-#include "Arduino.h"  // according http://blog.makezine.com/2011/12/01/arduino-1-0-is-out-heres-what-you-need-to-know/
 
 #include "DS2482.h"
-#include "Wire.h"
 
 
-#define PTR_STATUS 0xf0
-#define PTR_READ 0xe1
-#define PTR_CONFIG 0xc3
-
-
-DS2482::DS2482(uint8_t addr)
+//Begin comm with DS2482 over I2C
+DS2482::DS2482()
 {
-	mAddress = 0x18 | addr;
+	mAddress = 0x18; 	//Default, I2C address is 0x18
+	_hardPort = &Wire;	//Default to Wire port
+	_wireType = HARD_WIRE;
+	Wire.begin();
+	
+}
+
+//Begin comm with DS2482 over I2C
+DS2482::DS2482(TwoWire &wirePort)
+{
+	mAddress = 0x18; 	//Default, I2C address is 0x18
+	_hardPort = &wirePort;
+	_wireType = HARD_WIRE;
 
 }
 
-//-------helpers
+//Begin comm with DS2482 over I2C
+DS2482::DS2482(TwoWire &wirePort, uint8_t address)
+{
+	mAddress = 0x18 | address; 	//Default, I2C address is 0x18
+	_hardPort = &wirePort;
+	_wireType = HARD_WIRE;
+
+}
+
+//Begin comm with DS2482 over software I2C
+#ifdef SoftwareWire_h
+DS2482::DS2482(SoftwareWire& wirePort)
+{
+	mAddress = 0x18; 	//Default, I2C address is 0x18
+	_softPort = &wirePort;
+	_wireType = SOFT_WIRE;
+
+}
+
+DS2482::DS2482(SoftwareWire& wirePort, uint8_t address)
+{
+	mAddress = 0x18 | address; 	//Default, I2C address is 0x18
+	_softPort = &wirePort;
+	_wireType = SOFT_WIRE;
+
+}
+#endif
+
 void DS2482::begin()
 {
-	Wire.beginTransmission(mAddress);
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			_hardPort->beginTransmission(mAddress);
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			_softPort->beginTransmission(mAddress);
+		#endif
+			break;
+	}
 }
 
-void DS2482::end()
+uint8_t DS2482::end()
 {
-	Wire.endTransmission();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			return _hardPort->endTransmission();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			return _softPort->endTransmission();
+		#endif
+			break;
+	}
+}
+
+// Simply starts and ends an Wire transmission
+// If no devices are present, this returns false
+uint8_t DS2482::isPresent()
+{
+	begin();
+	return !end() ? true : false;
 }
 
 void DS2482::setReadPtr(uint8_t readPtr)
 {
-	begin();
-	Wire.write(0xe1);  // changed from 'send' to 'write' according http://blog.makezine.com/2011/12/01/arduino-1-0-is-out-heres-what-you-need-to-know/'
-	Wire.write(readPtr);
-	end();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_SET_POINTER);  // changed from 'send' to 'write' according http://blog.makezine.com/2011/12/01/arduino-1-0-is-out-heres-what-you-need-to-know/'
+			_hardPort->write(readPtr);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_SET_POINTER);  // changed from 'send' to 'write' according http://blog.makezine.com/2011/12/01/arduino-1-0-is-out-heres-what-you-need-to-know/'
+			_softPort->write(readPtr);
+			end();
+		#endif
+			break;
+	}
 }
 
 uint8_t DS2482::readByte()
 {
-	Wire.requestFrom(mAddress,(uint8_t)1);
-	return Wire.read();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			_hardPort->requestFrom(mAddress,(uint8_t)1);
+			return _hardPort->read();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			_softPort->requestFrom(mAddress,(uint8_t)1);
+			return _softPort->read();
+		#endif
+			break;
+	}
 }
 
 uint8_t DS2482::wireReadStatus(bool setPtr)
 {
 	if (setPtr)
-		setReadPtr(PTR_STATUS);
+		setReadPtr(DS2482_STATUS_REG);
 
 	return readByte();
 }
@@ -92,23 +181,59 @@ uint8_t DS2482::busyWait(bool setReadPtr)
 void DS2482::reset()
 {
 	mTimeout = 0;
-	begin();
-	Wire.write(0xf0);
-	end();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_DEVICE_RESET);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+		begin();
+		_softPort->write(DS2482_DEVICE_RESET);
+		end();
+		#endif
+			break;
+	}
 }
 
 bool DS2482::configure(uint8_t config)
 {
 	busyWait(true);
-	begin();
-	Wire.write(0xd2);
-	Wire.write(config | (~config)<<4);
-	end();
-	
-	return readByte() == config;
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_WRITE_CONFIG);
+			_hardPort->write(config | (~config)<<4);
+			end();
+			
+			return readByte() == config;
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_WRITE_CONFIG);
+			_softPort->write(config | (~config)<<4);
+			end();
+			
+			return readByte() == config;
+		#endif
+			break;
+	}
 }
 
-bool DS2482::selectChannel(uint8_t channel)
+//Set the global setting for the I2C address we want to communicate with
+//Default is 0x18
+void DS2482::setI2CAddress(uint8_t address)
+{
+	mAddress = address; //Set the I2C address for this device
+}
+
+bool DS2482::setChannel(uint8_t channel)
 {
 	uint8_t ch, ch_read;
 
@@ -116,44 +241,58 @@ bool DS2482::selectChannel(uint8_t channel)
 	{
 		case 0:
 		default:
-			ch = 0xf0;
-			ch_read = 0xb8;
+			ch = DS2482_WRITE_CHANNEL_0;
+			ch_read = DS2482_READ_CHANNEL_0;
 			break;
 		case 1:
-			ch = 0xe1;
-			ch_read = 0xb1;
+			ch = DS2482_WRITE_CHANNEL_1;
+			ch_read = DS2482_READ_CHANNEL_1;
 			break;
 		case 2:
-			ch = 0xd2;
-			ch_read = 0xaa;
+			ch = DS2482_WRITE_CHANNEL_2;
+			ch_read = DS2482_READ_CHANNEL_2;
 			break;
 		case 3:
-			ch = 0xc3;
-			ch_read = 0xa3;
+			ch = DS2482_WRITE_CHANNEL_3;
+			ch_read = DS2482_READ_CHANNEL_3;
 			break;
 		case 4:
-			ch = 0xb4;
-			ch_read = 0x9c;
+			ch = DS2482_WRITE_CHANNEL_4;
+			ch_read = DS2482_READ_CHANNEL_4;
 			break;
 		case 5:
-			ch = 0xa5;
-			ch_read = 0x95;
+			ch = DS2482_WRITE_CHANNEL_5;
+			ch_read = DS2482_READ_CHANNEL_5;
 			break;
 		case 6:
-			ch = 0x96;
-			ch_read = 0x8e;
+			ch = DS2482_WRITE_CHANNEL_6;
+			ch_read = DS2482_READ_CHANNEL_6;
 			break;
 		case 7:
-			ch = 0x87;
-			ch_read = 0x87;
+			ch = DS2482_WRITE_CHANNEL_7;
+			ch_read = DS2482_READ_CHANNEL_7;
 			break;
 	};
 
 	busyWait(true);
-	begin();
-	Wire.write(0xc3);
-	Wire.write(ch);
-	end();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_SELECT_CHANNEL);
+			_hardPort->write(ch);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_SELECT_CHANNEL);
+			_softPort->write(ch);
+			end();
+		#endif
+			break;
+	}
 	busyWait();
 
 	uint8_t check = readByte();
@@ -166,9 +305,23 @@ bool DS2482::selectChannel(uint8_t channel)
 bool DS2482::wireReset()
 {
 	busyWait(true);
-	begin();
-	Wire.write(0xb4);
-	end();
+
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_ONE_WIRE_RESET);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_ONE_WIRE_RESET);
+			end();
+		#endif
+			break;
+	}
 
 	uint8_t status = busyWait();
 
@@ -179,30 +332,74 @@ bool DS2482::wireReset()
 void DS2482::wireWriteByte(uint8_t b)
 {
 	busyWait(true);
-	begin();
-	Wire.write(0xa5);
-	Wire.write(b);
-	end();
+
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_ONE_WIRE_WRITE_BYTE);
+			_hardPort->write(b);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_ONE_WIRE_WRITE_BYTE);
+			_softPort->write(b);
+			end();
+		#endif
+			break;
+	}
 }
 
 uint8_t DS2482::wireReadByte()
 {
 	busyWait(true);
-	begin();
-	Wire.write(0x96);
-	end();
+
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_ONE_WIRE_READ_BYTE);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_ONE_WIRE_READ_BYTE);
+			end();
+		#endif
+			break;
+	}
+
 	busyWait();
-	setReadPtr(PTR_READ);
+	setReadPtr(DS2482_DATA_REG);
 	return readByte();
 }
 
 void DS2482::wireWriteBit(uint8_t bit)
 {
 	busyWait(true);
-	begin();
-	Wire.write(0x87);
-	Wire.write(bit ? 0x80 : 0);
-	end();
+	switch(_wireType)
+	{
+		case(HARD_WIRE):
+			begin();
+			_hardPort->write(DS2482_ONE_WIRE_SINGLE_BIT);
+			_hardPort->write(bit ? 0x80 : 0);
+			end();
+			break;
+		
+		case(SOFT_WIRE):
+		#ifdef SoftwareWire_h
+			begin();
+			_softPort->write(DS2482_ONE_WIRE_SINGLE_BIT);
+			_softPort->write(bit ? 0x80 : 0);
+			end();
+		#endif
+			break;
+	}
 }
 
 uint8_t DS2482::wireReadBit()
@@ -214,12 +411,12 @@ uint8_t DS2482::wireReadBit()
 
 void DS2482::wireSkip()
 {
-	wireWriteByte(0xcc);
+	wireWriteByte(ONE_WIRE_SKIP_ROM);
 }
 
 void DS2482::wireSelect(uint8_t rom[8])
 {
-	wireWriteByte(0x55);
+	wireWriteByte(ONE_WIRE_MATCH_ROM);
 	for (int i=0;i<8;i++)
 		wireWriteByte(rom[i]);
 }
@@ -248,7 +445,7 @@ uint8_t DS2482::wireSearch(uint8_t *newAddr)
 		return 0;
 
 	busyWait(true);
-	wireWriteByte(0xf0);
+	wireWriteByte(ONE_WIRE_SEARCH_ROM);
 
 	for(i=1;i<65;i++)
 	{
@@ -261,10 +458,26 @@ uint8_t DS2482::wireSearch(uint8_t *newAddr)
 			direction = i == searchLastDisrepancy;
 
 		busyWait();
-		begin();
-		Wire.write(0x78);
-		Wire.write(direction ? 0x80 : 0);
-		end();
+
+		switch(_wireType)
+		{
+			case(HARD_WIRE):
+				begin();
+				_hardPort->write(DS2482_ONE_WIRE_TRIPLET);
+				_hardPort->write(direction ? 0x80 : 0);
+				end();
+				break;
+			
+			case(SOFT_WIRE):
+			#ifdef SoftwareWire_h
+				begin();
+				_softPort->write(DS2482_ONE_WIRE_TRIPLET);
+				_softPort->write(direction ? 0x80 : 0);
+				end();
+			#endif
+				break;
+		}
+
 		uint8_t status = busyWait();
 
 		uint8_t id = status & DS2482_STATUS_SBR;
